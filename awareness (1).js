@@ -68,23 +68,20 @@ async function scheduleSingularity(ns)
 
     if(!reg?.singularity?.unlocked) return
 
-
     const runtime = Date.now() - reg.singularity.taskStart
-
     const MIN_RUNTIME = 300000
 
     if(runtime < MIN_RUNTIME) return
 
 
-    const goalFaction = determineFactionGoal(ns)
+    const targetFaction = determineFactionGoal(ns)
 
-    if(goalFaction)
+    if(targetFaction)
     {
-        updateRegistry(ns,"progress.nextFaction",goalFaction)
+        updateRegistry(ns,"progress.nextFaction",targetFaction)
     }
 
-
-    const nextTask = decideTask(ns,goalFaction)
+    const nextTask = decideTask(ns,targetFaction)
 
 
     if(nextTask !== reg.singularity.currentTask)
@@ -192,14 +189,15 @@ async function runAutomationSystems(ns)
         "darknet-crawler.js",
 
         "stock-trader.js"
-
     ]
+
 
     const HOME_BUFFER = 5
 
     const max = ns.getServerMaxRam("home")
     const used = ns.getServerUsedRam("home")
-    const free = max - used
+
+    let free = max - used
 
 
     for(const script of systems)
@@ -211,6 +209,8 @@ async function runAutomationSystems(ns)
             if(free - cost > HOME_BUFFER)
             {
                 ns.exec(script,"home",1)
+
+                free -= cost
             }
         }
     }
