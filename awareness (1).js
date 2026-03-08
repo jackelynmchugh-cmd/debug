@@ -1,4 +1,7 @@
 import {readRegistry,updateRegistry} from "./registry.js"
+import {detectBitNode} from "./utils.js"
+import {BITNODES} from "./game-data.js"
+import {FACTIONS} from "./faction-data.js"
 
 /** @param {NS} ns **/
 export async function main(ns)
@@ -7,7 +10,7 @@ export async function main(ns)
 
     while(true)
     {
-        await detectUnlocks(ns)
+        await detectEnvironment(ns)
 
         await scheduleSingularity(ns)
 
@@ -19,22 +22,45 @@ export async function main(ns)
     }
 }
 
-async function detectUnlocks(ns)
+
+
+async function detectEnvironment(ns)
 {
+    const reg = readRegistry(ns)
+
+    /** Detect BitNode **/
+
+    const node = detectBitNode(ns)
+
+    if(reg?.bitnode?.current !== node)
+    {
+        updateRegistry(ns,"bitnode.current",node)
+
+        if(BITNODES[node])
+        {
+            updateRegistry(ns,"bitnode.description",BITNODES[node].name)
+        }
+    }
+
+
+    /** Detect API unlocks **/
+
     try
     {
-        if(ns.singularity)
+        if(ns.singularity?.workForFaction)
             updateRegistry(ns,"singularity.unlocked",true)
     }
     catch{}
 
     try
     {
-        if(ns.stock)
+        if(ns.stock?.getSymbols)
             updateRegistry(ns,"stocks.unlocked",true)
     }
     catch{}
 }
+
+
 
 async function scheduleSingularity(ns)
 {
@@ -42,12 +68,24 @@ async function scheduleSingularity(ns)
 
     if(!reg?.singularity?.unlocked) return
 
+
     const runtime = Date.now() - reg.singularity.taskStart
+
     const MIN_RUNTIME = 300000
 
     if(runtime < MIN_RUNTIME) return
 
-    const nextTask = decideTask(ns)
+
+    const goalFaction = determineFactionGoal(ns)
+
+    if(goalFaction)
+    {
+        updateRegistry(ns,"progress.nextFaction",goalFaction)
+    }
+
+
+    const nextTask = decideTask(ns,goalFaction)
+
 
     if(nextTask !== reg.singularity.currentTask)
     {
@@ -60,21 +98,61 @@ async function scheduleSingularity(ns)
     }
 }
 
-function decideTask(ns)
+
+
+function determineFactionGoal(ns)
 {
     const player = ns.getPlayer()
 
-    if(player.skills.hacking < 50)
+    for(const faction in FACTIONS)
+    {
+        if(player.factions.includes(faction)) continue
+
+        return faction
+    }
+
+    return null
+}
+
+
+
+function decideTask(ns,targetFaction)
+{
+    const player = ns.getPlayer()
+
+    if(!targetFaction)
+        return "faction-work.js"
+
+    const req = FACTIONS[targetFaction]?.requirements
+
+    if(!req)
+        return "faction-work.js"
+
+
+    if(req.hacking && player.skills.hacking < req.hacking)
         return "university.js"
 
-    if(player.money < 2000000)
+
+    if(req.money && player.money < req.money)
         return "crime.js"
+
+
+    if(req.backdoor)
+        return "backdoor.js"
+
+
+    if(req.hacknetLevels || req.hacknetRam)
+        return "hacknet-manager.js"
+
 
     if(player.factions.length > 0)
         return "faction-work.js"
 
+
     return "company-work.js"
 }
+
+
 
 function stopAllSingularity(ns)
 {
@@ -82,7 +160,8 @@ function stopAllSingularity(ns)
         "crime.js",
         "faction-work.js",
         "company-work.js",
-        "university.js"
+        "university.js",
+        "backdoor.js"
     ]
 
     for(const script of tasks)
@@ -92,31 +171,41 @@ function stopAllSingularity(ns)
     }
 }
 
+
+
 async function runAutomationSystems(ns)
 {
     const systems = [
+
         "HGW-controller.js",
+
         "autoroot.js",
         "backdoor.js",
+
         "pserv-manager.js",
         "hacknet-manager.js",
         "home-upgrader.js",
+
         "contract-runner.js",
+
         "tor-manager.js",
         "darknet-crawler.js",
+
         "stock-trader.js"
+
     ]
 
     const HOME_BUFFER = 5
+
+    const max = ns.getServerMaxRam("home")
+    const used = ns.getServerUsedRam("home")
+    const free = max - used
+
 
     for(const script of systems)
     {
         if(!ns.scriptRunning(script,"home"))
         {
-            const max = ns.getServerMaxRam("home")
-            const used = ns.getServerUsedRam("home")
-            const free = max - used
-
             const cost = ns.getScriptRam(script)
 
             if(free - cost > HOME_BUFFER)
@@ -126,17 +215,8 @@ async function runAutomationSystems(ns)
         }
     }
 }
-import {detectBitNode} from "./utils.js"
-import {BITNODES} from "./game-data.js"
 
-const node = detectBitNode(ns)
 
-updateRegistry(ns,"bitnode.current",node)
-
-if(BITNODES[node])
-{
-    updateRegistry(ns,"bitnode.description",BITNODES[node].name)
-}
 
 async function crashRecovery(ns)
 {
